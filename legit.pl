@@ -569,25 +569,34 @@ sub show_commit() {   #commitID:fileName
 	my $directory;
 	my $fileDirectory;
 	#my $index = 0;
-
-	if ($commitID =~ /^[0-9]+$/) {
+	
+	if ($commitID eq "") {
+		$directory = "$legit/index";
+	} elsif ($commitID =~ /^[0-9]+$/) {
 		$directory = "$legit/$snapshot$commitID";
-	} else {
-		if ($commitID eq "") {
-			$directory = "$legit/index";
-			#$index = 1;
-		} else {
-			die "legit.pl: error: unknown commit '$commitID'\n"
+		if (! -d $directory) {
+			die "legit.pl: error: unknown commit '$commitID'\n";
 		}
-
 	}
 
-	if ($fileName !~ /^[a-zA-Z]+$/) {
+	#$directory = "$legit/$snapshot$commitID";
+	#} else {
+	#	if ($commitID eq "") {
+	#		$directory = "$legit/index";
+	#		#$index = 1;
+	#	} else {
+	#		die "legit.pl: error: unknown commit '$commitID'\n"
+	#	}
+	#
+	#}
+
+	if ($fileName !~ /^[a-zA-Z0-9]+$/) {
 		die "legit.pl: error: invalid filename '$fileName'\n"
 	} else {
 		$fileDirectory = "$directory/$fileName";
 	}
 
+	my $file;
 	if($fileDirectory !~ /\/index\//) {
 		open $file, '<', $fileDirectory or die "legit.pl: error: '$fileName' not found in commit $commitID\n"
 	} else {
@@ -667,6 +676,10 @@ sub commit_index() {  #commits by creating a new snapshot and transferring files
 #	my $indexDir = ".legit/index";
 	my $oldSnapshot = get_last_snapshot();
 	my $indexHasChanged = 0;
+
+	if ($message =~ /^-/) {
+		usage_commit();
+	}
 
 	# Checks if all files in index exist in old snapshot
 	foreach my $indexFile (glob "$index/*") {	#file contains path relative to current directory
@@ -795,9 +808,21 @@ sub add_files {
         my (@files) = @_;
 	my $file;
 	foreach $file (@files) {
-		if (! -e $file && ! -e "$index/$file") {
+		if ($file !~ /^[a-zA-Z0-9\@\.\-\_]+$/ || $file !~ /^[a-zA-Z0-9]/) {
+			# file doesnt start with alphanumeric char OR 
+			# contains characters that are not allowed
+			if ($file =~ /^-/) {
+				die "usage: legit.pl add <filenames>\n";
+			} else {
+				die "legit.pl: error: invalid filename '$file'\n";
+			}
+		} elsif (! -e $file && ! -e "$index/$file") {
 			die "legit.pl: error: can not open '$file'\n";
-		} elsif (! -e $file && -e "$index/$file") {
+		}
+	}
+
+	foreach $file (@files) {
+		if (! -e $file && -e "$index/$file") {
 			#wierd subset 0_13 case 
 			#if file being added doesnt exist in directory, but exists in index and is added..
 			#DELETE it 
