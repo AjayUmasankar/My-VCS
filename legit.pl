@@ -1,18 +1,27 @@
 #!/usr/bin/perl -w
 use strict;
 use warnings;
-
 use File::Path;
 use List::MoreUtils qw(uniq);
 
-our $branches = ".legit/branches";
-our $index = ".legit/index";
+our $legit = ".legit";
+our $snapshot = ".snapshot.";
+our $branches = "$legit/branches";
+our $index = "$legit/index";
 our $debug = 0;
 
+our @commands = ("init", "rm", "log", "show", "add", "commit", "status", "branch", "checkout", "merge");
+our %commands = map {$_ => 1} @commands;
 
 sub main() {
-	
-	if ($ARGV[0] eq "init") {
+	 if ($#ARGV == -1) {
+		usage("");
+	 } elsif (!$commands{$ARGV[0]}) {
+		usage("$ARGV[0]");
+	 } elsif ($ARGV[0] eq "init") {
+		if ($#ARGV != 0) {
+			die "usage: legit.pl init\n";
+		}
 		if (!-d ".legit") {
 			mkdir ".legit";
 			mkdir "$index";
@@ -32,23 +41,50 @@ sub main() {
 		} else {
 			print "legit.pl: error: .legit already exists\n";
 		}
-	} elsif (!-d ".legit") {
+	} elsif (!-d ".legit" && $commands{$ARGV[0]}) {
 		print "legit.pl: error: no .legit directory containing legit repository exists\n";
 	} elsif ($ARGV[0] eq "add") {
 		add_files(@ARGV[1..$#ARGV]);
 	} elsif ($ARGV[0] eq "commit") {
-		#my $message = $ARGV[2];
-		if ($ARGV[1] eq "-m") {
+		if ($#ARGV < 1) {
+			usage_commit();
+		} elsif ($ARGV[1] eq "-m") {
+			if ($#ARGV == 1) {
+				die "legit.pl: error: empty commit message\n";
+			} elsif ($#ARGV != 2) { 
+				usage_commit();
+			} 
 			commit_index($ARGV[2]);	# only -m option
+		} elsif ($ARGV[1] eq "-a") {
+			if ($#ARGV == 2 && $ARGV[2] eq "-m") {
+				die "legit.pl: error: empty commit message\n";
+			} elsif ($#ARGV == 3 && $ARGV[2] eq "-m") {
+				update_index();
+				commit_index($ARGV[3]);	# -a option..
+			} else {
+				usage_commit();
+			}
 		} else {
-			update_index();
-			commit_index($ARGV[3]);	# -a option..
+			usage_commit();
 		}
+	} elsif (check_no_commits()) { 	# all functions past here require atleast 1 commit
 	} elsif ($ARGV[0] eq "log") {
+		if ($#ARGV != 0) {
+			die "usage: legit.pl log\n";
+		}
 		show_log();
 	} elsif ($ARGV[0] eq "show") {
-		$ARGV[1] =~ /([0-9]*):(.*)/;
-		show_commit($1, $2);
+		if ($#ARGV != 1) {
+			die "usage: legit.pl show <commit>:<filename>\n";
+		}
+		if ($ARGV[1] =~ /(.*?):(.*)/) {
+			my $commitNum = $1;
+			my $fileName = $2;
+			show_commit($commitNum, $fileName);
+
+		} else {
+			die "legit.pl: error: invalid object $ARGV[1]\n";
+		}
 	} elsif ($ARGV[0] eq "rm") {
 		my $indexOnly = 0;
 		my $force = 0;
@@ -73,32 +109,138 @@ sub main() {
 		remove_file($indexOnly, $force, @ARGV[$startIndex..$#ARGV]);
 	} elsif ($ARGV[0] eq "status") {
 		my @trackableFiles = getTrackableFiles();
+		check_no_commits();
 		foreach my $file (sort @trackableFiles) {
 			print get_status($file);
 		}
 	} elsif ($ARGV[0] eq "branch") {
-		if (! -e ".legit/.snapshot.0/") {
-			die "legit.pl: error: your repository does not have any commits yet\n";
-		}
-
+		check_no_commits();
 		if ($#ARGV == 0) {
 			show_branches();
 		} elsif ($#ARGV == 1) {
 			make_branch($ARGV[1]);
-		} else {
+		} elsif ($#ARGV == 2) {
+			if ($ARGV[1] ne "-d") {
+				usage_branch();
+			}
 			delete_branch($ARGV[2]);
+		} else {
+			usage_branch();
 		}
 	} elsif ($ARGV[0] eq "checkout") {
+		if ($#ARGV != 1) {
+			die "usage: legit.pl checkout <branch>\n";
+		}
 		change_branch($ARGV[1]);
 	} elsif ($ARGV[0] eq "merge") {
-		merge($ARGV[3]);
-	}	
+		if ($#ARGV != 3) {
+			die "usage: legit.pl merge <branch|commit> -m message\n";
+		} elsif ($#ARGV >= 2 && $ARGV[2] ne "-m") {
+			die "usage: legit.pl merge <branch|commit> -m message\n";
+		}
+		merge_branch($ARGV[3], $ARGV[2]);
+	}# else {
+#		usage($ARGV[0]);
+#	}
 	exit 1;
 }
 
-sub merge {
-	my ($targetBranch) = @_;
-	print "$targetBranch\n";
+sub usage_commit() {
+	die "usage: legit.pl commit [-a] -m commit-message\n";
+}
+
+sub usage_branch() {
+	die "usage: legit.pl branch [-d] <branch>\n"
+}
+
+sub check_no_commits() {
+	die "legit.pl: error: your repository does not have any commits yet\n" if (! -e ".legit/.snapshot.0/");
+}
+sub usage {
+	my ($command) = @_;
+	if ($command ne "") {
+		print "legit.pl: error: unknown command $command\n";
+	}
+	print <<usage;
+Usage: legit.pl <command> [<args>]
+
+These are the legit commands:
+   init       Create an empty legit repository
+   add        Add file contents to the index
+   commit     Record changes to the repository
+   log        Show commit log
+   show       Show file at particular state
+   rm         Remove files from the current directory and from the index
+   status     Show the status of files in the current directory, index, and repository
+   branch     list, create or delete a branch
+   checkout   Switch branches or restore current directory files
+   merge      Join two development histories together
+
+usage
+}
+
+
+sub merge_branch {
+	my ($targetBranch, $message) = @_;
+	my $lastSnapshot = get_last_snapshot();
+	foreach my $file (glob "$branches/$targetBranch/*") {
+		my $fileName = $file;
+		$fileName =~ s/.*\///;
+		if (-e $fileName && !same_file($file,$fileName)) {
+			my $mergeBase = get_common_snapshot();                   
+                        merge_file($file, $fileName, $mergeBase); # merge $file into $fileName
+			print "Auto-merging $fileName\n";
+		} elsif (! -e $fileName) {
+			copy_file($file, $fileName);			
+		}
+		add_files($fileName);
+	} 
+	commit_index($message);
+	#print "$targetBranch\n";
+}
+
+sub get_common_snapshot {
+}
+
+sub merge_file { 
+	my ($file1, $file2, $mergeBase) = @_;
+	open my $mergedFile, ">", "\.merge.txt";
+	open my $commonFile, "<", $mergeBase;
+	open my $fh1, "<", $file1;
+	open my $fh2, "<", $file2;
+	my @file1 = <$fh1>;
+	my @file2 = <$fh2>;
+	my @commonFile = <$commonFile>;
+	close $fh1;
+	close $fh2;
+	close $commonFile;
+
+	my $lineCount = 0;
+	foreach my $line (@commonFile) {
+		my $line1 = $file1[$lineCount];
+		my $line2 = $file2[$lineCount];
+		if ($line eq $line1 && $line ne $line2) {
+			print $mergedFile $line2;
+		} elsif ($line ne $line1 && $line eq $line2) {
+			#print "base: $line line1: $line1 line2: $line2, using line1";
+			print $mergedFile $line1;
+		} else {
+			print $mergedFile $line;
+		}
+		$lineCount++;
+	}
+	close $mergedFile;
+	print `cat "\.merge.txt"`;
+	copy_file("\.merge.txt", $file2);
+	
+	
+	#open $mergedFile, "<", ".\merge.txt";
+	#open my $newFile, ">", $file2;
+	#print $newFile 	
+	#unlink $file2;
+	#print "howdy\n";
+	#print `cat $file2`;
+	unlink "\.merge.txt";
 }
 
 sub get_branch() {
@@ -127,7 +269,7 @@ sub change_branch {
 	my $currentBranch = get_branch();
 
 	if ($currentBranch eq $targetBranch) { 
-		die "cant change to same branch \n";
+		die "Already on '$targetBranch'\n";
 	} elsif (! -d "$branches/$targetBranch") {
 		die "legit.pl: error: unknown branch '$targetBranch'\n";
 	}
@@ -424,14 +566,30 @@ sub show_commit() {   #commitID:fileName
 	my ($commitID, $fileName) = @_;
 	my $folder;
 	my $file;
-	if ($commitID !~ /[0-9]+/) {
-		$folder = "$index/$fileName";
-		open $file, '<', $folder or die "legit.pl: error: '$fileName' not found in index\n";
-	} else {
-		$folder = ".legit/.snapshot.$commitID/$fileName";
-		if (!-d ".legit/.snapshot.$commitID") {die "legit.pl: error: unknown commit '$commitID'\n";}
-		open $file, '<', $folder or die "legit.pl: error: '$fileName' not found in commit $commitID\n";
-	}
+		if ($fileName =~ /^[a-zA-Z]+$/) {
+			if ($commitID =~ /^[0-9]+$/) {
+				if (!-d ".legit/.snapshot.$commitID") {die "legit.pl: error: unknown commit '$commitID'\n";}
+	 			$folder = "$legit/$snapshot$commitID/$fileName";
+	 			open $file, '<', $folder or die "legit.pl: error: '$fileName' not found in commit $commitID\n";
+			} elsif ($commitID eq "") {
+				$folder = "$index/$fileName";
+				open $file, '<', $folder or die "legit.pl: error: '$fileName' not found in index\n";
+			} else {
+				die "legit.pl: error: unknown commit '$commitID'\n"
+			}
+			
+		} else {
+				die "legit.pl: error: invalid filename '$fileName'\n";
+		}
+
+	#if ($commitID !~ /^[0-9]+$/) {
+	#	$folder = "$index/$fileName";
+	#			open $file, '<', $folder or die "legit.pl: error: '$fileName' not found in index\n";
+	# } else {
+	# 	$folder = ".legit/.snapshot.$commitID/$fileName";
+	# 	if (!-d ".legit/.snapshot.$commitID") {die "legit.pl: error: unknown commit '$commitID'\n";}
+	# 	open $file, '<', $folder or die "legit.pl: error: '$fileName' not found in commit $commitID\n";
+	# }
 	#print "$folder is folder\n";
 	#open $file, '<', $folder or print "legit.pl: error: 'c' not found in;
 	print <$file>;
@@ -612,7 +770,7 @@ sub add_files {
 	my $file;
 	foreach $file (@files) {
 		if (! -e $file && ! -e "$index/$file") {
-			die "legit.pl: error: can not open 'non_existent_file'\n";
+			die "legit.pl: error: can not open '$file'\n";
 		} elsif (! -e $file && -e "$index/$file") {
 			#wierd subset 0_13 case 
 			#if file being added doesnt exist in directory, but exists in index and is added..
