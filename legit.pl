@@ -1,25 +1,34 @@
 #!/usr/bin/perl -w
+#28th 9am
 use strict;
 use warnings;
 
 use File::Path;
 use List::MoreUtils qw(uniq);
 
-our $indexDir = ".legit/index";
+our $branches = ".legit/branches";
+our $index = ".legit/index";
+our $debug = 0;
+
 
 sub main() {
 	
 	if ($ARGV[0] eq "init") {
 		if (!-d ".legit") {
 			mkdir ".legit";
-			mkdir ".legit/index";
-			mkdir ".legit/branches";
-			make_branch("master");			
-			#mkdir ".legit/branches/master";			# could be refactoreD
-			#mkdir ".legit/branches/master/snapshot";	# could be refactoreD
-			mkdir ".legit/.branch";
+			mkdir "$index";
+			mkdir "$branches";
+			#make_branch("master");			
+			mkdir "$branches/master";			
+			mkdir "$branches/master/.snapshots";	
+			mkdir ".legit/.branch";				# keep track of current branch
+			mkdir ".legit/.commitNum"; 			# keep track of commit number
 			set_branch("master");						
 			open my $log , ">>", ".legit/log.txt" or die;
+			open my $commitFile,  ">>", ".legit/commitNum.txt" or die;
+			print $commitFile "0";
+			close $log;
+			close $commitFile;
 			print "Initialized empty legit repository in .legit\n";
 		} else {
 			print "legit.pl: error: .legit already exists\n";
@@ -64,7 +73,10 @@ sub main() {
 		}
 		remove_file($indexOnly, $force, @ARGV[$startIndex..$#ARGV]);
 	} elsif ($ARGV[0] eq "status") {
-		show_status();
+		my @trackableFiles = getTrackableFiles();
+		foreach my $file (sort @trackableFiles) {
+			print get_status($file);
+		}
 	} elsif ($ARGV[0] eq "branch") {
 		if (! -e ".legit/.snapshot.0/") {
 			die "legit.pl: error: your repository does not have any commits yet\n";
@@ -79,8 +91,15 @@ sub main() {
 		}
 	} elsif ($ARGV[0] eq "checkout") {
 		change_branch($ARGV[1]);
-	}
+	} elsif ($ARGV[0] eq "merge") {
+		merge($ARGV[3]);
+	}	
 	exit 1;
+}
+
+sub merge {
+	my ($targetBranch) = @_;
+	print "$targetBranch\n";
 }
 
 sub get_branch() {
@@ -93,6 +112,8 @@ sub get_branch() {
 
 sub set_branch {
 	my ($branchName) = @_;
+	rmtree ".legit/\.branch";
+	mkdir ".legit/\.branch";
 	open my $branchFile, ">", ".legit/\.branch/$branchName" or die;
 	print $branchFile "$branchName";
 	close $branchFile;
@@ -104,61 +125,127 @@ sub set_branch {
 #}
 sub change_branch {
 	my ($targetBranch) = @_;
-	foreach my $file (glob ".legit/branches/$targetBranch/*") {
-		print "$file\n";
+	my $currentBranch = get_branch();
+
+	if ($currentBranch eq $targetBranch) { 
+		die "cant change to same branch \n";
+	} elsif (! -d "$branches/$targetBranch") {
+		die "legit.pl: error: unknown branch '$targetBranch'\n";
 	}
 
-	my $currentBranch = get_branch();
-	print "$currentBranch, $targetBranch requested\n";
-	my $snapshotDir = ".legit/branches/$currentBranch/snapshots";
-	# Moving snapshots from .legit folder to the branches folder
-	foreach my $snapshot (glob ".legit/\.snapshot*") {
-		my $snapshotName = $snapshot;
-		$snapshotName =~ /.*\///;
-		copy_file($snapshot, "$snapshotDir/$snapshotName");
-		rm $snapshot;
-	}
-	# Moving snapshots from target branch folder to .legit folder
-	$snapshotDir = ".legit/branches/$targetBranch/snapshots";
-	foreach my $snapshot (glob "$snapshotDir/\.snapshot*") {
-		my $snapshotName = $snapshot;
-		$snapshotName =~ /.*\///;
-		copy_file($snapshot, ".legit/$snapshotName");
-	} 
-	rmtree "$snapshotDir";
-	
+	# Moving files from current branch to the .legit directory
+	my @overwrittenFiles = ();
+	my $lastSnapshot = get_last_snapshot();
 	foreach my $file (glob "**") {
 		my $fileName = $file;
-		$fileName =~ /.*\///;
-		copy_file($file, ".legit/branches/$currentBranch/$fileName");
-		rm $file;
+		$fileName =~ s/.*\///;
+		if (-e ".legit/$lastSnapshot/$fileName" && 
+		!same_file($file, ".legit/$lastSnapshot/$fileName")) {
+			print "Not removing $file because it has changed since last commit!\n" if $debug;
+			print ".legit/$lastSnapshot/$fileName is different to $file\n" if $debug;
+			# If the file in current branch is differnet to its last commit,
+			# keep the file ..... why
+			copy_file(".legit/$lastSnapshot/$fileName", "$branches/$currentBranch/$fileName");
+		} elsif (get_status($fileName) eq "$fileName - untracked\n") {
+			print "Untracked file :$fileName, doing nothing\n" if $debug; 
+			if (-e $branches/$targetBranch/$fileName) {
+				push @overwrittenFiles, $fileName;
+		#		if (-e $branches/$targetBranch/$fileName) {
+		#		print 			
+
+		} else {
+			print "Removing $file from current directory\n" if $debug;
+			copy_file($file, "$branches/$currentBranch/$fileName");
+			unlink $file;
+		}
+	}
+	# Checking if there are any files that would be overwritten
+	if (@overwrittenFiles > 0) {
+		my $overwrittenFiles = join(' ', @overwrittenFiles);
+		die "legit.pl: error: Your changes to the following files 
+			would be overwritten by checkout:\n$overwrittenFiles\n";
 	}
 
-	foreach my $file (glob ".legit/branches/$targetBranch/*") {
+	# Moving snapshots from .legit folder to the branches folder
+	my $snapshotDir = "$branches/$currentBranch/.snapshots";
+	foreach my $snapshot (glob ".legit/\.snapshot*") {
+		my $snapshotName = $snapshot;
+		$snapshotName =~ s/.*\///;
+		copy_files("$snapshot", "$snapshotDir/$snapshotName");
+		rmtree $snapshot;
+	}
+
+	# Moving snapshots from target branch folder to .legit folder
+	$snapshotDir = "$branches/$targetBranch/.snapshots";
+	foreach my $snapshot (glob "$snapshotDir/\.snapshot*") {
+		my $snapshotName = $snapshot;
+		$snapshotName =~ s/.*\///;
+		copy_files("$snapshot", ".legit/$snapshotName");
+		#rmtree "$snapshot";
+	} 
+	rmtree "$snapshotDir"; #so that snapshots folder isnt copied in the next two steps
+	
+	foreach my $file (glob "$branches/$targetBranch/*") {
 		my $fileName = $file;
-		$fileName =~ /.*\///;
-		copy_file($file, $fileName);
-		rm $file;		
+		$fileName =~ s/.*\///;
+		if (! -e $fileName) {
+			print "Copying $file into user directory as $fileName\n" if $debug;
+			copy_file($file, $fileName);
+		} else {
+			print "Not copying $file into user directory as $fileName\n" if $debug;
+		}
+		unlink $file;		
 	}
-
+	mkdir "$snapshotDir";
+	set_branch("$targetBranch");
+	print "Switched to branch '$targetBranch'\n";
 }	
+
+sub copy_files {
+	my ($dir1, $dir2) = @_;
+	
+	foreach my $file (glob "$dir1/*") {
+		my $fileName = $file;
+		$fileName =~ s/.*\///;
+		mkdir "$dir2";
+		print "Copying $file into \"$dir2/$fileName\"\n" if $debug;
+		copy_file ($file, "$dir2/$fileName");
+#		print "Finished copy\n" if $debug;
+	}
+} 
 
 sub delete_branch {
 	my ($branchName) = @_;
+	my $currentBranch = get_branch();
+	#	my $latestSnapshot = get_last_snapshot();
+	#	change_branch("master");
+	#	my $masterLatestSnapshot = get_last_snapshot();
+	#	change_branch($branchName);
+
 	if ($branchName eq "master") {
-		print "legit.pl: error: can not delete branch 'master'\n";
-	} elsif (! -d ".legit/branches/$branchName") {
-		print "legit.pl: error: branch '$branchName' does not exist\n";
+		die "legit.pl: error: can not delete branch 'master'\n";
+	} elsif (! -d "$branches/$branchName") {
+		die "legit.pl: error: branch '$branchName' does not exist\n";
 	} else {
-		rmtree ".legit/branches/$branchName";
+		my $branchDirectory = "**";
+		if ($currentBranch ne $branchName) {
+			$branchDirectory = "$branches/$branchName/*";	
+		}
+		foreach my $file (glob "$branchDirectory") {
+			my $fileName = $file;
+			$fileName =~ s/.*\///;
+			#if ($fileName eq "snapshots") { next };
+			if (! -e $fileName || (-e $fileName && !same_file($file, $fileName))) {
+				die "legit.pl: error: branch '$branchName' has unmerged changes\n";
+			}
+		}
+		rmtree "$branches/$branchName";
 		print "Deleted branch '$branchName'\n"; 
 	}
 }
 
 sub show_branches() {
-	my $branchFolder = ".legit/branches";
-	
-	foreach my $branch (glob "$branchFolder/*") {
+	foreach my $branch (glob "$branches/*") {
 		my $branchName = $branch;
 		$branchName =~ s/.*\///;
 		print "$branchName\n";
@@ -167,14 +254,16 @@ sub show_branches() {
 
 sub make_branch {
 	my ($branchName) = @_;
-	my $branch = ".legit/branches/$branchName";
+	my $branch = "$branches/$branchName";
 	if (! -e $branch) { 
 		mkdir "$branch";
-		mkdir "$branch/snapshots";
+		mkdir "$branch/.snapshots";
 		foreach my $snapshot (glob ".legit/\.snapshot*") {
 			my $snapshotName = $snapshot;
 			$snapshotName =~ s/.*\///;
-			copy_file($snapshot, "$branch/snapshots/$snapshotName");
+#			print "entering copy_files\n";
+			copy_files($snapshot, "$branch/.snapshots/$snapshotName");
+#			print "exiting copy_Files\n";
 		}		
 	} else {
 		die "legit.pl: error: branch '$branchName' already exists\n";
@@ -186,7 +275,7 @@ sub make_branch {
 
 sub getTrackableFiles() {
 	my @curDirArray = glob "**";
-	my @indexArray = glob ".legit/index/*";
+	my @indexArray = glob "$index/*";
 	my $snapshot = get_last_snapshot();;
 	my @repoArray = ();
 #	my $suffix = 0;
@@ -202,37 +291,38 @@ sub getTrackableFiles() {
 	return uniq(@trackableFiles);
 }
 
-sub show_status() {
-	my @trackedFiles = getTrackableFiles();
+sub get_status() {
+	my ($file) = @_;
+	#my @trackedFiles = getTrackableFiles();
 	my $oldSnapshot = get_last_snapshot();	
-
-	foreach my $file (sort @trackedFiles) {
-		print "$file - ";
+	
+	#	foreach my $file (sort @trackedFi
+		my $statusString = "$file -";
 		if (! -e $file) { 
-			if (! -e ".legit/index/$file") {
-				print "deleted\n";
+			if (! -e "$index/$file") {
+				$statusString = "$statusString deleted\n";
 			} else {
-				print "file deleted\n";
+				$statusString = "$statusString file deleted\n";
 			}
-		} elsif (! -e ".legit/$oldSnapshot/$file" && -e ".legit/index/$file") {
-			print "added to index\n";
-		} elsif (! -e ".legit/index/$file") { #".legit/$oldSnapshot/$file") {
-			print "untracked\n";
+		} elsif (! -e ".legit/$oldSnapshot/$file" && -e "$index/$file") {
+			$statusString = "$statusString added to index\n";
+		} elsif (! -e "$index/$file") { #".legit/$oldSnapshot/$file") {
+			$statusString = "$statusString untracked\n";
 		} elsif (!same_file($file, ".legit/$oldSnapshot/$file")) {
-			print "file changed, ";
-			if (same_file($file, ".legit/index/$file")) {
-				print "changes staged for commit\n";
-			} elsif (same_file(".legit/index/$file", ".legit/$oldSnapshot/$file")) {
+			$statusString = "$statusString file changed,";
+			if (same_file($file, "$index/$file")) {
+				$statusString = "$statusString changes staged for commit\n";
+			} elsif (same_file("$index/$file", ".legit/$oldSnapshot/$file")) {
 				# oldSnapshotFile == indexFile, therefore no changes
-				print "changes not staged for commit\n";
+				$statusString = "$statusString changes not staged for commit\n";
 			} else {
-				print "different changes staged for commit\n";
+				$statusString = "$statusString different changes staged for commit\n";
 			}
 		} else {
-			print "same as repo\n";
+			$statusString = "$statusString same as repo\n";
 		}
-			
-	}
+		return $statusString;
+	#}
 }
 
 
@@ -250,7 +340,13 @@ sub remove_file {
 	my ($indexOnly, $force, @files) = @_;
 	my $oldSnapshot = get_last_snapshot();
 	foreach my $fileName (@files) {
-		my $indexFile = ".legit/index/$fileName";
+		my $indexFile = "$index/$fileName";
+		if (! -e $indexFile) {
+			die "legit.pl: error: '$fileName' is not in the legit repository\n";
+		}
+	}
+	foreach my $fileName (@files) {
+		my $indexFile = "$index/$fileName";
 		my $repositoryFile = ".legit/$oldSnapshot/$fileName";
 		my $currentFile = "$fileName";
 		if ($force != 1) {	
@@ -299,7 +395,7 @@ sub show_commit() {   #commitID:fileName
 	my $folder;
 	my $file;
 	if ($commitID !~ /[0-9]+/) {
-		$folder = ".legit/index/$fileName";
+		$folder = "$index/$fileName";
 		open $file, '<', $folder or die "legit.pl: error: '$fileName' not found in index\n";
 	} else {
 		$folder = ".legit/.snapshot.$commitID/$fileName";
@@ -341,7 +437,7 @@ sub show_log() {      #prints the contents of the log
 }
 sub update_index() {  #used to update index for the -a tag in commit
 	# $indexDir = ".legit/index";
-	foreach my $file (glob "$indexDir/*") {
+	foreach my $file (glob "$index/*") {
 		my $fileName = $file;
 		$fileName =~ s/.*\///;
 		if (!same_file("$file", "$fileName")) {
@@ -359,7 +455,7 @@ sub commit_index() {  #commits by creating a new snapshot and transferring files
 	my $indexHasChanged = 0;
 
 	# Checks if all files in index exist in old snapshot
-	foreach my $indexFile (glob "$indexDir/*") {	#file contains path relative to current directory
+	foreach my $indexFile (glob "$index/*") {	#file contains path relative to current directory
 		my $fileName = $indexFile;
 		$fileName =~ s/.*\///;
 		my $oldRepoFile = ".legit/$oldSnapshot/$fileName";
@@ -376,7 +472,7 @@ sub commit_index() {  #commits by creating a new snapshot and transferring files
 	foreach my $oldRepoFile (glob ".legit/$oldSnapshot/*") {
 		my $fileName = $oldRepoFile;
 		$fileName =~ s/.*\///;
-		if (! -e "$indexDir/$fileName") {
+		if (! -e "$index/$fileName") {
 			$indexHasChanged = 1;
 		}
 	}
@@ -388,19 +484,35 @@ sub commit_index() {  #commits by creating a new snapshot and transferring files
 	}
 
 	my $newSnapshot = get_new_snapshot();
-	$newSnapshot =~ /\.snapshot\.(.*)/;
-	my $commitNum = $1;
+	#$newSnapshot =~ /\.snapshot\.(.*)/;
+	my $commitNum = get_commit_num();
 	mkdir ".legit/$newSnapshot";
-	foreach my $indexFile (glob "$indexDir/*") {
+	foreach my $indexFile (glob "$index/*") {
 		my $fileName = $indexFile;
 		$fileName =~ s/.*\///;
 		copy_file("$indexFile", ".legit/$newSnapshot/$fileName");
 	}
-
+	
 	print "Committed as commit $commitNum\n"; 
+	set_commit_num($commitNum+1);
 	update_log($message);
 	#return 1;
 }
+
+sub get_commit_num() {
+	open my $commitFile, "<", ".legit/commitNum.txt" or die;
+	my $commitNum = <$commitFile>;
+	print "Current commitNum = $commitNum\n" if $debug;
+	return $commitNum;
+}
+
+sub set_commit_num {
+	my ($commitNum) = @_;
+	print "Setting commitNum to $commitNum\n" if $debug;
+	open my $commitFile, ">", ".legit/commitNum.txt" or die;
+	print $commitFile "$commitNum";
+}
+
 
 # Returns 0 if they are not the same file(or if one of the files dont exist), 1 if they are
 sub same_file() {
@@ -469,15 +581,15 @@ sub add_files {
         my (@files) = @_;
 	my $file;
 	foreach $file (@files) {
-		if (! -e $file && ! -e "$indexDir/$file") {
+		if (! -e $file && ! -e "$index/$file") {
 			die "legit.pl: error: can not open 'non_existent_file'\n";
-		} elsif (! -e $file && -e "$indexDir/$file") {
+		} elsif (! -e $file && -e "$index/$file") {
 			#wierd subset 0_13 case 
 			#if file being added doesnt exist in directory, but exists in index and is added..
 			#DELETE it 
-			unlink "$indexDir/$file";
+			unlink "$index/$file";
 		} else {
-			copy_file("$file", "$indexDir/$file");
+			copy_file("$file", "$index/$file");
 		}
 	}
 }
