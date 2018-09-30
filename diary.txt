@@ -1,0 +1,90 @@
+Subset 0
+25th September
+5AM
+Starting reading assignment spec
+6AM
+Watched Atlassian Git video and began coding up init and add.
+This code was based on my solution to the lab08 snapshot task and the sample solution.
+Finished coding init and add at 6:40
+9AM
+Finished subset0 all except subset0_8 test.
+Lots of time wasted missing out on \n's randomly.
+Lots of time used on creating the code for appropriate error display.
+10AM
+Changed code to commit only when the index differs from previous snapshot.
+Other error messages popped while trying to fix this.
+Most of the time spent refactoring code.
+
+Subset 1
+11PM - 3AM
+Started working on subset 1
+11.21 - finished and autotested commit -a with no errors
+26th September
+
+Mostly spent time refactoring and thinking about how to make code neater.
+Finished all tests for commit -a option and all rm options. 
+The errors still feel a bit arbitrary/wierd, but maybe this is because I haven't really used the reference implementation. 
+Refactored my commit function, remove functions and others to improve readability and reduce code size. 
+
+27th September
+3.21am - 4.20AM
+Started working on subset 1 status. Finished status tests for status at 4.20 am
+4.40am - 4.45am
+started fixing code to pass final subset 1 test (1_18).
+All subset 0 and subset 1 tests passsed - 4.45am
+
+Subset 2
+7.30AM - 8:40am
+Starting implementing branches in subset 2. 2041 autotest legit subset2_17 passed 
+Changing code around and impplementing new helper functions to prepare for branch changing (checkout) 
+11:30PM - 28th September 2:00AM
+Worked on checkout mainly, all tests up and including to subset2_20 are working
+Changed commit number to be tracked globally instead of relatively to branches.
+3AM-5:00AM
+subset2_21 working, spent time mostly attempting to mirror the outputs of tests.
+subset2_22-23 finished too. 
+Mostly dealing with edge cases involving errors and I had to change the way information was stored in my .legit repo. (e.g. introducing a commitNum file and currentBranch file)
+
+29th September
+12:00AM - 12:50AM
+subset2_24 working (checkout with work that would be overwritten), fixed get_status method to be more accurate. Spent time just trying different conditions and experimenting when exactly the error message is printed out.
+1AM - 1.30AM
+Started working on a simple merge but decicded to leave it to later because finding a common snapshot would take some time.
+
+1st October
+2AM
+Started on tests and started using reference implementation (via the test_legit.pl) to ensure there werent any problems with already implemented functions (everything except merge)
+
+Testing:
+	5. rm a a, where a exists
+	6. commit -a a a a and commit -a -m a a a and commit -a -m
+			. commit a a -m   
+			. commit a a -a
+	7. add filename criteria
+	8. all or nothing with add_files ??
+		if add a b and only a exists what happens
+
+our @commands = ("init", "rm", "log", "show", "add", "commit", "status", "branch", "checkout", "merge");
+
+
+
+
+./test_legit.pl always failed to initialize a legit repo unless the test00.sh had only one line which was legit.pl init..??
+
+
+
+
+
+
+subset1_13:
+b is in current dir, but has just been added to index
+previous commit doesnt have b
+
+status edge case:
+if file is in all previous snapshots except most recent snapshot
+and also file is in current directory
+
+You should match the output streams used by the reference implementation. It writes error messages to stderr, so should you in legit.pl.
+You should match the exit status used by the reference implementation. It exits with status 1 after an error, so should you in legit.pl.
+
+
