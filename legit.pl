@@ -1,11 +1,13 @@
 #!/usr/bin/perl -w
-
+use List::MoreUtils qw(uniq);
 
 sub main() {
 	if ($ARGV[0] eq "init") {
 		if (!-d ".legit") {
 			mkdir ".legit";
 			mkdir ".legit/index";
+			mkdir ".legit/branches";
+			mkdir ".legit/branches/master";
 			open my $log , ">>", ".legit/log.txt" or die;
 			print "Initialized empty legit repository in .legit\n";
 		} else {
@@ -50,8 +52,113 @@ sub main() {
 			$startIndex = 2;
 		}
 		remove_file($indexOnly, $force, @ARGV[$startIndex..$#ARGV]);
+	} elsif ($ARGV[0] eq "status") {
+		show_status();
+	} elsif ($ARGV[0] eq "branch") {
+		if (! -e ".legit/.snapshot.0/") {
+			die "legit.pl: error: your repository does not have any commits yet\n";
+		}
+
+		if ($#ARGV == 0) {
+			show_branches();
+		} elsif ($#ARGV == 1) {
+			make_branch($ARGV[1]);
+		} else {
+			delete_branch($ARGV[2]);
+		}
+	}
+	exit 1;
+}
+
+sub delete_branch {
+	my ($branchName) = @_;
+	if ($branchName eq "master") {
+		print "legit.pl: error: can not delete branch 'master'\n";
+	} elsif (! -d ".legit/branches/$branchName") {
+		print "legit.pl: error: branch '$branchName' does not exist\n";
+	} else {
+		print "Deleted branch '$branchName'\n"; 
 	}
 }
+
+sub show_branches() {
+	my $branchFolder = ".legit/branches";
+	
+	foreach my $branch (glob "$branchFolder/*") {
+		my $branchName = $branch;
+		$branchName =~ s/.*\///;
+		print "$branchName\n";
+	}
+
+	
+}
+
+sub make_branch {
+	my ($branchName) = @_;
+	my $branch = ".legit/branches/$branchName";
+	if (! -e $branch) { 
+		mkdir "$branch";
+	} else {
+		die "legit.pl: error: branch '$branchName' already exists\n";
+	}
+	foreach my $file (glob "**") {
+		copy_file($file, "$branch/$file");
+	}
+}
+
+sub getTrackableFiles() {
+	my @curDirArray = glob "**";
+	my @indexArray = glob ".legit/index/*";
+	my $snapshot = get_last_snapshot(); #".snapshot.0";
+	my @repoArray = ();
+	my $suffix = 0;
+#	while (-e ".legit/$snapshot") {
+		my @curSnapshotFiles = glob ".legit/$snapshot/*";
+		@repoArray = (@repoArray, @curSnapshotFiles);
+#		$suffix++;
+#		$snapshot = ".snapshot.$suffix";
+#	}
+	my @trackableFiles = (@curDirArray, @indexArray, @repoArray);
+	@trackableFiles = map {$_ =~ s/\.legit\/index\///; $_} @trackableFiles;
+	@trackableFiles = map {$_ =~ s/\.legit\/.snapshot\.[0-9]+\///; $_} @trackableFiles;
+	return uniq(@trackableFiles);
+}
+
+sub show_status() {
+	my @trackedFiles = getTrackableFiles();
+	my $oldSnapshot = get_last_snapshot();	
+
+	foreach my $file (sort @trackedFiles) {
+		print "$file - ";
+		if (! -e $file) { 
+			if (! -e ".legit/index/$file") {
+				print "deleted\n";
+			} else {
+				print "file deleted\n";
+			}
+		} elsif (! -e ".legit/$oldSnapshot/$file" && -e ".legit/index/$file") {
+			print "added to index\n";
+		} elsif (! -e ".legit/index/$file") { #".legit/$oldSnapshot/$file") {
+			print "untracked\n";
+		} elsif (!same_file($file, ".legit/$oldSnapshot/$file")) {
+			print "file changed, ";
+			if (same_file($file, ".legit/index/$file")) {
+				print "changes staged for commit\n";
+			} elsif (same_file(".legit/index/$file", ".legit/$oldSnapshot/$file")) {
+				# oldSnapshotFile == indexFile, therefore no changes
+				print "changes not staged for commit\n";
+			} else {
+				print "different changes staged for commit\n";
+			}
+		} else {
+			print "same as repo\n";
+		}
+			
+	}
+}
+
+
+
 #sub file_exists { 
 #	my ($file1) = @_;
 #	open FILE1, '<', $file1 or return 0;
@@ -297,9 +404,12 @@ sub add_files {
 			die "legit.pl: error: can not open 'non_existent_file'\n";
 		} elsif (! -e $file && -e "$indexDir$file") {
 			#wierd subset 0_13 case 
+			#if file being added doesnt exist in directory, but exists in index and is added..
+			#DELETE it 
 			unlink "$indexDir$file";
 		} else {
-			copy_file("$file", "$indexDir$file")
+			copy_file("$file", "$indexDir$file");
+#			$trackedFiles{$file} = 1;
 		}
 	}
         #foreach $file (@files) {
