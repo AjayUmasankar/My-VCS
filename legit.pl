@@ -569,18 +569,26 @@ sub show_commit() {   #commitID:fileName
 	my $directory;
 	my $fileDirectory;
 	#my $index = 0;
-
-	if ($commitID =~ /^[0-9]+$/) {
+	
+	if ($commitID eq "") {
+		$directory = "$legit/index";
+	} elsif ($commitID =~ /^[0-9]+$/) {
 		$directory = "$legit/$snapshot$commitID";
-	} else {
-		if ($commitID eq "") {
-			$directory = "$legit/index";
-			#$index = 1;
-		} else {
-			die "legit.pl: error: unknown commit '$commitID'\n"
+		if (! -d $directory) {
+			die "legit.pl: error: unknown commit '$commitID'\n";
 		}
-
 	}
+
+	#$directory = "$legit/$snapshot$commitID";
+	#} else {
+	#	if ($commitID eq "") {
+	#		$directory = "$legit/index";
+	#		#$index = 1;
+	#	} else {
+	#		die "legit.pl: error: unknown commit '$commitID'\n"
+	#	}
+	#
+	#}
 
 	if ($fileName !~ /^[a-zA-Z0-9]+$/) {
 		die "legit.pl: error: invalid filename '$fileName'\n"
