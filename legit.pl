@@ -565,23 +565,49 @@ sub remove_file {
 sub show_commit() {   #commitID:fileName 
 	my ($commitID, $fileName) = @_;
 	my $folder;
-	my $file;
-		if ($fileName =~ /^[a-zA-Z]+$/) {
-			if ($commitID =~ /^[0-9]+$/) {
-				if (!-d ".legit/.snapshot.$commitID") {die "legit.pl: error: unknown commit '$commitID'\n";}
-	 			$folder = "$legit/$snapshot$commitID/$fileName";
-	 			open $file, '<', $folder or die "legit.pl: error: '$fileName' not found in commit $commitID\n";
-			} elsif ($commitID eq "") {
-				$folder = "$index/$fileName";
-				open $file, '<', $folder or die "legit.pl: error: '$fileName' not found in index\n";
-			} else {
-				die "legit.pl: error: unknown commit '$commitID'\n"
-			}
-			
+	#my $file;
+	my $directory;
+	my $fileDirectory;
+	#my $index = 0;
+
+	if ($commitID =~ /^[0-9]+$/) {
+		$directory = "$legit/$snapshot$commitID";
+	} else {
+		if ($commitID eq "") {
+			$directory = "$legit/index";
+			#$index = 1;
 		} else {
-				die "legit.pl: error: invalid filename '$fileName'\n";
+			die "legit.pl: error: unknown commit '$commitID'\n"
 		}
 
+	}
+
+	if ($fileName !~ /^[a-zA-Z]+$/) {
+		die "legit.pl: error: invalid filename '$fileName'\n"
+	} else {
+		$fileDirectory = "$directory/$fileName";
+	}
+
+	if($fileDirectory !~ /\/index\//) {
+		open $file, '<', $fileDirectory or die "legit.pl: error: '$fileName' not found in commit $commitID\n"
+	} else {
+		open $file, '<', $fileDirectory or die "legit.pl: error: '$fileName' not found in index\n";
+	}
+
+	# if ($commitID =~ /^[0-9]+$/) {
+	# 	if ($fileName =~ /^[a-zA-Z]+$/) {
+	# 		if (!-d ".legit/.snapshot.$commitID") {die "legit.pl: error: unknown commit '$commitID'\n";}
+ # 			$folder = "$legit/$snapshot$commitID/$fileName";
+ # 			open $file, '<', $folder or die "legit.pl: error: '$fileName' not found in commit $commitID\n";
+ # 		} else {
+ # 			die "legit.pl: error: invalid filename '$fileName'\n";
+ # 		}
+	# } elsif ($commitID eq "") {
+	# 	$folder = "$index/$fileName";
+	# 	open $file, '<', $folder or die "legit.pl: error: '$fileName' not found in index\n";
+	# } else {
+	# 	die "legit.pl: error: unknown commit '$commitID'\n"
+	# }
 	#if ($commitID !~ /^[0-9]+$/) {
 	#	$folder = "$index/$fileName";
 	#			open $file, '<', $folder or die "legit.pl: error: '$fileName' not found in index\n";
