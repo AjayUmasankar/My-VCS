@@ -140,15 +140,36 @@ sub main() {
 	} elsif ($ARGV[0] eq "merge") {
 		if ($#ARGV != 3) {
 			die "usage: legit.pl merge <branch|commit> -m message\n";
-		} elsif ($#ARGV >= 2 && $ARGV[2] ne "-m") {
+		} elsif ($#ARGV >= 2 && $ARGV[2] ne "-m" && $ARGV[1] ne "-m") {
 			die "usage: legit.pl merge <branch|commit> -m message\n";
 		}
-		merge_branch($ARGV[3], $ARGV[2]);
+		if ($ARGV[1] eq "-m") {
+			merge_branch($ARGV[3], $ARGV[2]);
+		} else {
+			merge_branch($ARGV[1], $ARGV[3]);
+		}
 	}# else {
 #		usage($ARGV[0]);
 #	}
 	exit 1;
 }
+
+sub same_files {
+	my ($dir1, $dir2) = @_;
+	foreach my $file1 (glob "$dir1/*") {
+		my $file_found = 0;
+		foreach my $file2 (glob "$dir2/*") {
+			if (same_file($file1,$file2)) {
+				$file_found = 1;
+			}
+		}
+		if ($file_found == 0) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
 
 sub usage_remove() {
 	die "usage: legit.pl rm [--force] [--cached] <filenames>\n";	
@@ -192,33 +213,58 @@ usage
 sub merge_branch {
 	my ($targetBranch, $message) = @_;
 	my $lastSnapshot = get_last_snapshot();
+	#my $currentBranch = get_branch();
+	my $merged = 0;
 	foreach my $file (glob "$branches/$targetBranch/*") {
 		my $fileName = $file;
 		$fileName =~ s/.*\///;
 		if (-e $fileName && !same_file($file,$fileName)) {
-			my $mergeBase = get_common_snapshot();                   
-                        merge_file($file, $fileName, $mergeBase); # merge $file into $fileName
+			my $mergeBase = get_common_snapshot( $targetBranch);                   
+			#print "$mergeBase\n";
+                        merge_file($file, $fileName, "$mergeBase/$fileName"); # merge $file into $fileName
 			print "Auto-merging $fileName\n";
+			add_files($fileName);
+			$merged = 1;
 		} elsif (! -e $fileName) {
 			copy_file($file, $fileName);			
 		}
-		add_files($fileName);
-	} 
-	commit_index($message);
+	}
+	if ($merged == 1) {
+		commit_index($message);
+	} else {
+		print "Fast-forward: no commit created\n";
+	}
 }
 
 sub get_common_snapshot {
+	my ($targetBranch) = @_;
+	foreach my $dir1 (glob "$branches/$targetBranch/\.snapshots/\.*") {
+		my $snapshot = ".snapshot.0";
+		my $suffix = 0;
+		#print "$dir1\n";
+		while (-d "$legit/$snapshot") {
+			#print "$snapshot exists\n";
+			if (same_files($dir1, "$legit/$snapshot")) {
+				#print "Returning $legit/$snapshot\n";
+				return "$legit/$snapshot";
+			}
+			$suffix = $suffix + 1;
+			$snapshot = ".snapshot.$suffix";
+		}
+	}
+	return "howdidthishappen\n";
 }
 
 sub merge_file { 
 	my ($file1, $file2, $mergeBase) = @_;
-	open my $mergedFile, ">", "\.merge.txt";
-	open my $commonFile, "<", $mergeBase;
-	open my $fh1, "<", $file1;
-	open my $fh2, "<", $file2;
+	open my $mergedFile, ">", "\.merge.txt" or die;
+	open my $commonFile, "<", "$mergeBase" or die; #or die "Couldn't read $mergeBase\n";
+	open my $fh1, "<", $file1 or die;
+	open my $fh2, "<", $file2 or die;
 	my @file1 = <$fh1>;
 	my @file2 = <$fh2>;
 	my @commonFile = <$commonFile>;
+	#print "@commonFile\n";
 	close $fh1;
 	close $fh2;
 	close $commonFile;
@@ -237,7 +283,7 @@ sub merge_file {
 		$lineCount++;
 	}
 	close $mergedFile;
-	print `cat "\.merge.txt"`;
+	#print `cat "\.merge.txt"`;
 	copy_file("\.merge.txt", $file2);
 	unlink "\.merge.txt";
 }
