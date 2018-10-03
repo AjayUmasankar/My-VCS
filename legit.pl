@@ -3,6 +3,7 @@ use strict;
 use warnings;
 use File::Path;
 use List::MoreUtils qw(uniq);
+use Algorithm::Merge qw(merge diff3 traverse_sequences3);
 
 our $legit = ".legit";
 our $snapshot = ".snapshot.";
@@ -244,13 +245,40 @@ sub merge_branch {
 			add_files($fileName);
 			$merged = 1;
 		} elsif (! -e $fileName) {
+			add_files($file);
 			copy_file($file, $fileName);			
 		}
 	}
 	if ($merged == 1) {
+#		copy_snapshots($targetBranch);
 		commit_index($message);
 	} else {
 		print "Fast-forward: no commit created\n";
+	}
+}
+
+sub copy_snapshots {
+	my ($targetBranch) = @_;
+	my $lastSnapshot = get_last_snapshot();
+	my $lastSuffix = $lastSnapshot;
+	$lastSuffix =~ s/.*\.//;
+	$lastSuffix+=1;
+	foreach my $dir1 (glob "$branches/$targetBranch/\.snapshots/\.snapshot*") {
+		#dir1 = ... .. /.snapshot.suffix
+		#print "$dir1\n";
+		my $snapshot = $dir1;
+		$snapshot =~ s/.*\///;
+		#print "$snapshot\n";
+		if (! -d "$legit/$snapshot") {
+			print "$legit/$snapshot doesnt exist\n";
+			copy_files($dir1, "$legit/$snapshot");
+		} elsif (!same_files($dir1, "$legit/$snapshot")) {
+			print "$legit/$snapshot does exist, therefore $snapshot$lastSuffix\n";
+			copy_files($dir1, "$legit/$snapshot$lastSuffix");
+			$lastSuffix++;
+		} else {
+			print "why\n";
+		}
 	}
 }
 
@@ -273,8 +301,10 @@ sub get_common_snapshot {
 	return "howdidthishappen\n";
 }
 
+
 sub merge_file { 
 	my ($file1, $file2, $mergeBase) = @_;
+
 	open my $mergedFile, ">", "\.merge.txt" or die;
 	open my $commonFile, "<", "$mergeBase" or die; #or die "Couldn't read $mergeBase\n";
 	open my $fh1, "<", $file1 or die;
@@ -282,6 +312,18 @@ sub merge_file {
 	my @file1 = <$fh1>;
 	my @file2 = <$fh2>;
 	my @commonFile = <$commonFile>;
+	my @merged = merge(\@commonFile, \@file1, \@file2, { 
+              CONFLICT => sub { } 
+          });
+#	print "@merged\n";
+	foreach my $line (@merged) { 
+#		print "$line\n";
+		print $mergedFile $line;
+	}
+	close $mergedFile;
+	copy_file("\.merge.txt", $file2);
+	unlink "\.merge.txt";
+=pod
 	#print "@commonFile\n";
 	close $fh1;
 	close $fh2;
@@ -304,6 +346,7 @@ sub merge_file {
 	#print `cat "\.merge.txt"`;
 	copy_file("\.merge.txt", $file2);
 	unlink "\.merge.txt";
+=cut
 }
 
 sub get_branch() {
@@ -795,10 +838,12 @@ sub add_files {
         my (@files) = @_;
 	my $file;
 	foreach $file (@files) {
-		if ($file !~ /^[a-zA-Z0-9\@\.\-\_]+$/ || $file !~ /^[a-zA-Z0-9]/) {
+		my $fileName = $file;
+		$fileName =~ s/.*\///;
+		if ($fileName !~ /^[a-zA-Z0-9\@\.\-\_]+$/ || $fileName !~ /^[a-zA-Z0-9]/) {
 			# file doesnt start with alphanumeric char OR 
 			# contains characters that are not allowed
-			if ($file =~ /^-/) {
+			if ($fileName =~ /^-/) {
 				print STDERR "usage: legit.pl add <filenames>\n";
 				exit 1;
 			} else {
@@ -812,13 +857,15 @@ sub add_files {
 	}
 
 	foreach $file (@files) {
+		my $fileName = $file;
+		$fileName =~ s/.*\///;
 		if (! -e $file && -e "$index/$file") {
 			#wierd subset 0_13 case 
 			#if file being added doesnt exist in directory, but exists in index and is added..
 			#DELETE it 
 			unlink "$index/$file";
 		} else {
-			copy_file("$file", "$index/$file");
+			copy_file("$file", "$index/$fileName");
 		}
 	}
 }
