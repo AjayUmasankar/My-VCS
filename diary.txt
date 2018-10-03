@@ -52,10 +52,14 @@ subset2_24 working (checkout with work that would be overwritten), fixed get_sta
 Started working on a simple merge but decicded to leave it to later because finding a common snapshot would take some time.
 
 1st October
-2AM
-Started on tests and started using reference implementation (via the test_legit.pl) to ensure there werent any problems with already implemented functions (everything except merge)
+2AM-6AM
+Started on tests (0-4 completed) and started using reference implementation (via the test_legit.pl) to ensure there werent any problems with already implemented functions (everything except merge).
+8AM-9.30AM
+tests 5-9 complete
+
 
 Testing:
+	4. commands with wierd args e.g. --cacheXD instead of --cached
 	5. rm a a, where a exists
 	6. commit -a a a a and commit -a -m a a a and commit -a -m
 			. commit a a -m   
@@ -69,12 +73,10 @@ our @commands = ("init", "rm", "log", "show", "add", "commit", "status", "branch
 
 
 
+
+
+
 ./test_legit.pl always failed to initialize a legit repo unless the test00.sh had only one line which was legit.pl init..??
-
-
-
-
-
 
 subset1_13:
 b is in current dir, but has just been added to index
