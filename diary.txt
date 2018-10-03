@@ -76,14 +76,7 @@ subset2_28 passed
 
 
 
-	5. rm a a, where a exists
-	8. all or nothing with add_files and remove files???
-		if add a b and only a exists what happens
 
-our @commands = ("init", "rm", "log", "show", "add", "commit", "status", "branch", "checkout", "merge");
-
-
-1111. YOU COMMENTED OUT ERROR CHECKING FOR MERGE, REENABLE MAYBE?
 
 
 
