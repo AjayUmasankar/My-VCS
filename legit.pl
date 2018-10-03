@@ -5,6 +5,7 @@ use File::Path;
 use List::MoreUtils qw(uniq);
 use Algorithm::Merge qw(merge diff3 traverse_sequences3);
 
+our $log = ".log.txt";
 our $legit = ".legit";
 our $snapshot = ".snapshot.";
 our $branches = "$legit/branches";
@@ -33,7 +34,7 @@ sub main() {
 			mkdir "$legit/.branch";				# keep track of current branch
 			mkdir "$legit/.commitNum"; 			# keep track of commit number
 			set_branch("master");						
-			open my $log , ">>", "$legit/log.txt" or die;
+			open my $log , ">>", "$legit/$log" or die;
 			open my $commitFile,  ">>", "$legit/commitNum.txt" or die;
 			print $commitFile "0";
 			close $log;
@@ -234,27 +235,93 @@ sub merge_branch {
 	my $lastSnapshot = get_last_snapshot();
 	#my $currentBranch = get_branch();
 	my $merged = 0;
+	my @unmerged;
 	foreach my $file (glob "$branches/$targetBranch/*") {
 		my $fileName = $file;
 		$fileName =~ s/.*\///;
 		if (-e $fileName && !same_file($file,$fileName)) {
 			my $mergeBase = get_common_snapshot( $targetBranch);                   
 			#print "$mergeBase\n";
-                        merge_file($file, $fileName, "$mergeBase/$fileName"); # merge $file into $fileName
-			print "Auto-merging $fileName\n";
-			add_files($fileName);
-			$merged = 1;
+                        my $unmerged_file = merge_file($file, $fileName, "$mergeBase/$fileName"); # merge $file into $fileName
+			if ($unmerged_file eq "") {
+				print "Auto-merging $fileName\n";
+				add_files($fileName);
+				$merged = 1;
+			} else {
+				push (@unmerged, $unmerged_file);
+			}
 		} elsif (! -e $fileName) {
 			add_files($file);
 			copy_file($file, $fileName);			
 		}
 	}
-	if ($merged == 1) {
+	if (scalar(@unmerged) != 0) {
+		print "legit.pl: error: These files can not be merged:\n";
+		foreach my $file (@unmerged) {
+			print "$file\n";
+		}
+	} elsif ($merged == 1) {
+#		print `cat "$legit/$log"`;
 #		copy_snapshots($targetBranch);
+		#open FILE, '>', "empty.txt";
+		#close FILE;
+		#merge_file("$branches/$targetBranch/$log", "$legit/$log", "empty.txt");
+		#copy_file("$log", "$legit/$log");
+		#unlink "empty.txt";
 		commit_index($message);
+		reconcile_logs($targetBranch);
 	} else {
 		print "Fast-forward: no commit created\n";
 	}
+}
+
+sub reconcile_logs {
+	my ($targetBranch) = @_;
+	open my $log1, '<', "$legit/$log" or die;
+	open my $log2, '<', "$branches/$targetBranch/$log" or die;
+	my @lines1 = <$log1>;
+	my @lines2 = <$log2>;
+	open my $file, '>', "$log" or die;
+	my @newLog = uniq((@lines1, @lines2));
+	foreach my $line (sort {substr($a,0,1) <=> substr($b,0,1)} @newLog) {
+		print $file $line;
+	}
+
+#	my $count1 = 0;
+#	my $count2 = 0;
+#	my $count3 = 0;
+#	my $count4 = 0;
+#	my $finished = 0;
+#	while ($finished != 1) {
+#		$finished = 1;
+#		#my $past1 = $count1;
+#		if ($count1 < scalar(sort reverse @lines1)) {
+#			if ($lines1[$count1] =~ /^$count3/) {
+#				print $file $lines1[$count1];
+#				$count1++;
+#				$count3++;
+#				$finished=0;
+#			}
+#		}
+#		if ($count2 < scalar(sort reverse @lines2)) {
+#			if ($lines2[$count2] =~ /^$count3/) {
+#				#if ($past1 == $count1) {
+#				print $file $lines2[$count2];
+#				$count2++;
+#				$count3++;
+#				$finished=0;
+#				#}
+#			}
+#		}
+#		#$count3++;
+#	}
+	close $log1;
+	close $log2;
+	close $file;
+	copy_file("$log", "$legit/$log");
+	unlink "$log";
+	#while ($count < get_commit_num()) {
+		
 }
 
 sub copy_snapshots {
@@ -304,7 +371,7 @@ sub get_common_snapshot {
 
 sub merge_file { 
 	my ($file1, $file2, $mergeBase) = @_;
-
+	our $conflict = 0;
 	open my $mergedFile, ">", "\.merge.txt" or die;
 	open my $commonFile, "<", "$mergeBase" or die; #or die "Couldn't read $mergeBase\n";
 	open my $fh1, "<", $file1 or die;
@@ -313,9 +380,14 @@ sub merge_file {
 	my @file2 = <$fh2>;
 	my @commonFile = <$commonFile>;
 	my @merged = merge(\@commonFile, \@file1, \@file2, { 
-              CONFLICT => sub { } 
+              CONFLICT => sub {$conflict = 1 } 
           });
 #	print "@merged\n";
+	if ($conflict == 1) {
+		close $mergedFile;
+		unlink "\.merge.txt";
+		return $file2;
+	}
 	foreach my $line (@merged) { 
 #		print "$line\n";
 		print $mergedFile $line;
@@ -323,6 +395,7 @@ sub merge_file {
 	close $mergedFile;
 	copy_file("\.merge.txt", $file2);
 	unlink "\.merge.txt";
+	return "";
 =pod
 	#print "@commonFile\n";
 	close $fh1;
@@ -421,6 +494,7 @@ sub change_branch {
 	}
 
 
+
 	# Moving snapshots from $legit folder to the branches folder
 	my $snapshotDir = "$branches/$currentBranch/.snapshots";
 	foreach my $snapshot (glob "$legit/\.snapshot*") {
@@ -440,9 +514,12 @@ sub change_branch {
 	} 
 	rmtree "$snapshotDir"; #so that snapshots folder isnt copied in the next two steps
 	
+	#Moving files from target branch folder to current directory
 	foreach my $file (glob "$branches/$targetBranch/*") {
 		my $fileName = $file;
 		$fileName =~ s/.*\///;
+	#	if ($fileName eq "$log") {
+	#		copy_file
 		if (! -e $fileName) {
 			print "Copying $file into user directory as $fileName\n" if $debug;
 			copy_file($file, $fileName);
@@ -451,6 +528,12 @@ sub change_branch {
 		}
 		unlink $file;		
 	}
+
+	# Moving logs between branches
+	copy_file("$legit/$log", "$branches/$currentBranch/$log");
+	copy_file("$branches/$targetBranch/$log", "$legit/$log");
+	#unlink "$log";
+
 	mkdir "$snapshotDir";
 	set_branch("$targetBranch");
 	print "Switched to branch '$targetBranch'\n";
@@ -512,6 +595,8 @@ sub make_branch {
 	if (! -e $branch) { 
 		mkdir "$branch";
 		mkdir "$branch/.snapshots";
+		copy_file("$legit/$log", "$branch/$log");
+#		print "Making log file at $branch/$log\n";
 		foreach my $snapshot (glob "$legit/\.snapshot*") {
 			my $snapshotName = $snapshot;
 			$snapshotName =~ s/.*\///;
@@ -673,8 +758,8 @@ sub show_commit {   #commitID:fileName
 
 sub update_log {    #logs are updated after successful commits
 	my ($message) = @_;
-	open my $log, '>>', "$legit/log.txt" or die;
-	my $numCommits = log_lines();
+	open my $log, '>>', "$legit/$log" or die;
+	my $numCommits = get_commit_num()-1;
 	$message = "$numCommits $message";
 	print $log $message;
 	print $log "\n";
@@ -682,7 +767,7 @@ sub update_log {    #logs are updated after successful commits
 }
 
 sub log_lines() {     #how many lines/commits there are in the log
-	open my $log, '<', "$legit/log.txt" or die;
+	open my $log, '<', "$legit/$log" or die;
 	my @lines = <$log>;
 	close $log;
 	return @lines;
@@ -690,7 +775,7 @@ sub log_lines() {     #how many lines/commits there are in the log
 
 sub show_log() {      #prints the contents of the log
 	#test log
-	open my $log, '<', "$legit/log.txt" or die;
+	open my $log, '<', "$legit/$log" or die;
 	my @logLines = <$log>;
 	foreach my $line (reverse @logLines) {
 		print "$line";
