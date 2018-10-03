@@ -150,7 +150,11 @@ sub main() {
 		change_branch($ARGV[1]);
 	} elsif ($ARGV[0] eq "merge") {
 		if ($#ARGV != 3) {
-			print STDERR "usage: legit.pl merge <branch|commit> -m message\n";
+			if ($#ARGV == 1 && $ARGV[1] ne "-m") {
+				print STDERR "legit.pl: error: empty commit message\n";
+			} else {
+				print STDERR "usage: legit.pl merge <branch|commit> -m message\n";
+			}
 			exit 1;
 		} elsif ($#ARGV >= 2 && $ARGV[2] ne "-m" && $ARGV[1] ne "-m") {
 			print STDERR "usage: legit.pl merge <branch|commit> -m message\n";
@@ -236,6 +240,11 @@ sub merge_branch {
 	#my $currentBranch = get_branch();
 	my $merged = 0;
 	my @unmerged;
+
+	if (! -d "$branches/$targetBranch") {
+		print STDERR "legit.pl: error: unknown branch '$targetBranch'\n";
+		exit 1;
+	}
 	foreach my $file (glob "$branches/$targetBranch/*") {
 		my $fileName = $file;
 		$fileName =~ s/.*\///;
@@ -256,10 +265,11 @@ sub merge_branch {
 		}
 	}
 	if (scalar(@unmerged) != 0) {
-		print "legit.pl: error: These files can not be merged:\n";
+		print STDERR "legit.pl: error: These files can not be merged:\n";
 		foreach my $file (@unmerged) {
-			print "$file\n";
+			print STDERR "$file\n";
 		}
+		exit 1;
 	} elsif ($merged == 1) {
 #		print `cat "$legit/$log"`;
 #		copy_snapshots($targetBranch);
@@ -727,19 +737,21 @@ sub remove_file {
 sub show_commit {   #commitID:fileName 
 	my ($commitID, $fileName) = @_;
 	my $folder;
-	my $directory;
+	my $directory = "";
 	my $fileDirectory;
 
 	if ($commitID eq "") {
 		$directory = "$legit/index";
 	} elsif ($commitID =~ /^[0-9]+$/) {
-		$directory = "$legit/$snapshot$commitID";
-		if (! -d $directory) {
-			die "legit.pl: error: unknown commit '$commitID'\n";
-			#exit 1;
+		if (! -d "$legit/$snapshot$commitID") {
+			print "legit.pl: error: unknown commit '$commitID'\n";
+			exit 1;
 		}
+		$directory = "$legit/$snapshot$commitID";	
+	} else {
+		print "legit.pl: error: unknown commit '$commitID'\n";
+		exit 1;
 	}
-
 	if ($fileName !~ /^[a-zA-Z0-9]+$/) {
 		print "legit.pl: error: invalid filename '$fileName'\n";
 		exit 1;
