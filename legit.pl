@@ -20,7 +20,8 @@ sub main() {
 		usage("$ARGV[0]");
 	 } elsif ($ARGV[0] eq "init") {
 		if ($#ARGV != 0) {
-			die "usage: legit.pl init\n";
+			print STDERR "usage: legit.pl init\n";
+			exit 1;
 		}
 		if (!-d "$legit") {
 			mkdir "$legit";
@@ -38,10 +39,12 @@ sub main() {
 			close $commitFile;
 			print "Initialized empty legit repository in $legit\n";
 		} else {
-			print "legit.pl: error: $legit already exists\n";
+			print STDERR "legit.pl: error: $legit already exists\n";
+			exit 1;
 		}
 	} elsif (!-d "$legit" && $commands{$ARGV[0]}) {
-		print "legit.pl: error: no $legit directory containing legit repository exists\n";
+		print STDERR "legit.pl: error: no $legit directory containing legit repository exists\n";
+		exit 1;
 	} elsif ($ARGV[0] eq "add") {
 		add_files(@ARGV[1..$#ARGV]);
 	} elsif ($ARGV[0] eq "commit") {
@@ -49,14 +52,16 @@ sub main() {
 			usage_commit();
 		} elsif ($ARGV[1] eq "-m") {
 			if ($#ARGV == 1) {
-				die "legit.pl: error: empty commit message\n";
+				print STDERR "legit.pl: error: empty commit message\n";
+				exit 1;
 			} elsif ($#ARGV != 2) { 
 				usage_commit();
 			} 
 			commit_index($ARGV[2]);	# only -m option
 		} elsif ($ARGV[1] eq "-a") {
 			if ($#ARGV == 2 && $ARGV[2] eq "-m") {
-				die "legit.pl: error: empty commit message\n";
+				print STDERR "legit.pl: error: empty commit message\n";
+				exit 1;
 			} elsif ($#ARGV == 3 && $ARGV[2] eq "-m") {
 				update_index();
 				commit_index($ARGV[3]);	# -a option..
@@ -69,20 +74,23 @@ sub main() {
 	} elsif (check_no_commits()) { 	# all functions past here require atleast 1 commit
 	} elsif ($ARGV[0] eq "log") {
 		if ($#ARGV != 0) {
+#			print STDERR "usage: legit.pl log\n";
+#			exit 1;
 			die "usage: legit.pl log\n";
 		}
 		show_log();
 	} elsif ($ARGV[0] eq "show") {
 		if ($#ARGV != 1) {
-			die "usage: legit.pl show <commit>:<filename>\n";
+			print "usage: legit.pl show <commit>:<filename>\n";
+			exit 1;
 		}
 		if ($ARGV[1] =~ /(.*?):(.*)/) {
 			my $commitNum = $1;
 			my $fileName = $2;
 			show_commit($commitNum, $fileName);
-
 		} else {
-			die "legit.pl: error: invalid object $ARGV[1]\n";
+			print "legit.pl: error: invalid object $ARGV[1]\n";
+			exit 1;
 		}
 	} elsif ($ARGV[0] eq "rm") {
 		my $indexOnly = 0;
@@ -134,14 +142,17 @@ sub main() {
 		}
 	} elsif ($ARGV[0] eq "checkout") {
 		if ($#ARGV != 1) {
-			die "usage: legit.pl checkout <branch>\n";
+			print STDERR "usage: legit.pl checkout <branch>\n";
+			exit 1;
 		}
 		change_branch($ARGV[1]);
 	} elsif ($ARGV[0] eq "merge") {
 		if ($#ARGV != 3) {
-			die "usage: legit.pl merge <branch|commit> -m message\n";
+			print STDERR "usage: legit.pl merge <branch|commit> -m message\n";
+			exit 1;
 		} elsif ($#ARGV >= 2 && $ARGV[2] ne "-m" && $ARGV[1] ne "-m") {
-			die "usage: legit.pl merge <branch|commit> -m message\n";
+			print STDERR "usage: legit.pl merge <branch|commit> -m message\n";
+			exit 1;
 		}
 		if ($ARGV[1] eq "-m") {
 			merge_branch($ARGV[3], $ARGV[2]);
@@ -172,26 +183,32 @@ sub same_files {
 
 
 sub usage_remove() {
-	die "usage: legit.pl rm [--force] [--cached] <filenames>\n";	
+	print STDERR "usage: legit.pl rm [--force] [--cached] <filenames>\n";	
+	exit 1;
 }
 
 sub usage_commit() {
-	die "usage: legit.pl commit [-a] -m commit-message\n";
+	print STDERR "usage: legit.pl commit [-a] -m commit-message\n";
+	exit 1;
 }
 
 sub usage_branch() {
-	die "usage: legit.pl branch [-d] <branch>\n"
+	print STDERR "usage: legit.pl branch [-d] <branch>\n";
+	exit 1;
 }
 
 sub check_no_commits() {
-	die "legit.pl: error: your repository does not have any commits yet\n" if (! -e "$legit/.snapshot.0/");
+	if (! -e "$legit/.snapshot.0/") {
+		print STDERR "legit.pl: error: your repository does not have any commits yet\n";
+		exit 1;
+	}
 }
 sub usage {
 	my ($command) = @_;
 	if ($command ne "") {
-		print "legit.pl: error: unknown command $command\n";
+		print STDERR "legit.pl: error: unknown command $command\n";
 	}
-	print <<usage;
+	print STDERR <<usage;
 Usage: legit.pl <command> [<args>]
 
 These are the legit commands:
@@ -207,6 +224,7 @@ These are the legit commands:
    merge      Join two development histories together
 
 usage
+exit 1;
 }
 
 
@@ -314,9 +332,11 @@ sub change_branch {
 	my $currentBranch = get_branch();
 
 	if ($currentBranch eq $targetBranch) { 
-		die "Already on '$targetBranch'\n";
+		print STDERR "Already on '$targetBranch'\n";
+		exit 1;
 	} elsif (! -d "$branches/$targetBranch") {
-		die "legit.pl: error: unknown branch '$targetBranch'\n";
+		print STDERR "legit.pl: error: unknown branch '$targetBranch'\n";
+		exit 1;
 	}
 	
 	# Checking for files that might be overwritten
@@ -411,9 +431,11 @@ sub delete_branch {
 	my $currentBranch = get_branch();
 
 	if ($branchName eq "master") {
-		die "legit.pl: error: can not delete branch 'master'\n";
+		print STDERR "legit.pl: error: can not delete branch 'master'\n";
+		exit 1;
 	} elsif (! -d "$branches/$branchName") {
-		die "legit.pl: error: branch '$branchName' does not exist\n";
+		print STDERR "legit.pl: error: branch '$branchName' does not exist\n";
+		exit 1;
 	} else {
 		my $branchDirectory = "**";
 		if ($currentBranch ne $branchName) {
@@ -424,7 +446,8 @@ sub delete_branch {
 			$fileName =~ s/.*\///;
 			#if ($fileName eq "snapshots") { next };
 			if (! -e $fileName || (-e $fileName && !same_file($file, $fileName))) {
-				die "legit.pl: error: branch '$branchName' has unmerged changes\n";
+				print STDERR "legit.pl: error: branch '$branchName' has unmerged changes\n";
+				exit 1;
 			}
 		}
 		rmtree "$branches/$branchName";
@@ -452,7 +475,8 @@ sub make_branch {
 			copy_files($snapshot, "$branch/.snapshots/$snapshotName");
 		}		
 	} else {
-		die "legit.pl: error: branch '$branchName' already exists\n";
+		print STDERR "legit.pl: error: branch '$branchName' already exists\n";
+		exit 1;
 	}
 	foreach my $file (glob "**") {
 		my $fileStatus = get_status($file);
@@ -523,27 +547,32 @@ sub remove_file {
 		my $repositoryFile = "$legit/$oldSnapshot/$fileName";
 		my $currentFile = "$fileName";
 		if (! -e $indexFile) {
-			die "legit.pl: error: '$fileName' is not in the legit repository\n";
+			print STDERR "legit.pl: error: '$fileName' is not in the legit repository\n";
+			exit 1;
 		}
 		if ($force != 1) {	
 			if (-e $repositoryFile && -e $indexFile && -e $fileName) {
 				if (!same_file($indexFile, $repositoryFile) && 
 					!same_file($indexFile, $fileName)) {
-					die "legit.pl: error: '$fileName' in index is different to both working file and repository\n";
+					print STDERR "legit.pl: error: '$fileName' in index is different to both working file and repository\n";
+					exit 1;
 				}
 			}		
 			if (-e $indexFile && $indexOnly == 0) {
 				if (! -e $repositoryFile) {
-					die "legit.pl: error: '$fileName' has changes staged in the index\n";
+					print STDERR "legit.pl: error: '$fileName' has changes staged in the index\n";
+					exit 1;
 				} elsif (-e $repositoryFile) {
 					if (!same_file($indexFile, $repositoryFile)) {
-						die "legit.pl: error: '$fileName' has changes staged in the index\n";
+						print STDERR "legit.pl: error: '$fileName' has changes staged in the index\n";
+						exit 1;	
 					}
 				}
 			}
 			if (-e $repositoryFile && -e $fileName && $indexOnly == 0) {
 				if (!same_file($repositoryFile, $currentFile)) {
-					die "legit.pl: error: '$fileName' in repository is different to working file\n";
+					print STDERR "legit.pl: error: '$fileName' in repository is different to working file\n";
+					exit 1;
 				}
 			}
 		}
@@ -567,7 +596,7 @@ sub remove_file {
 }
 
 
-sub show_commit() {   #commitID:fileName 
+sub show_commit {   #commitID:fileName 
 	my ($commitID, $fileName) = @_;
 	my $folder;
 	my $directory;
@@ -579,20 +608,22 @@ sub show_commit() {   #commitID:fileName
 		$directory = "$legit/$snapshot$commitID";
 		if (! -d $directory) {
 			die "legit.pl: error: unknown commit '$commitID'\n";
+			#exit 1;
 		}
 	}
 
 	if ($fileName !~ /^[a-zA-Z0-9]+$/) {
-		die "legit.pl: error: invalid filename '$fileName'\n"
+		print "legit.pl: error: invalid filename '$fileName'\n";
+		exit 1;
 	} else {
 		$fileDirectory = "$directory/$fileName";
 	}
 
 	my $file;
 	if($fileDirectory !~ /\/index\//) {
-		open $file, '<', $fileDirectory or die "legit.pl: error: '$fileName' not found in commit $commitID\n"
+		open $file, '<', $fileDirectory or die "legit.pl: error: '$fileName' not found in commit $commitID\n";
 	} else {
-		open $file, '<', $fileDirectory or die "legit.pl: error: '$fileName' not found in index\n";
+		open $file, '<', $fileDirectory or die "legit.pl: error: '$fileName' not found in index\n";# && exit 1;
 	}
 	print <$file>;
 }
@@ -768,12 +799,15 @@ sub add_files {
 			# file doesnt start with alphanumeric char OR 
 			# contains characters that are not allowed
 			if ($file =~ /^-/) {
-				die "usage: legit.pl add <filenames>\n";
+				print STDERR "usage: legit.pl add <filenames>\n";
+				exit 1;
 			} else {
-				die "legit.pl: error: invalid filename '$file'\n";
+				print STDERR "legit.pl: error: invalid filename '$file'\n";
+				exit 1;
 			}
 		} elsif (! -e $file && ! -e "$index/$file") {
-			die "legit.pl: error: can not open '$file'\n";
+			print STDERR "legit.pl: error: can not open '$file'\n";
+			exit 1;
 		}
 	}
 
