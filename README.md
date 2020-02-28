@@ -1,5 +1,3 @@
-Don't push changes to this repository directly.
+This program can handle major functions of Git such as push/pull, status, branches, and basic merge conflicts.
 
-Don't change the repository via the web interface
-
-Submit your work using give, and it will be automatically pushed to this repository.
+Created using Perl
